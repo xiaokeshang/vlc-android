@@ -1,7 +1,7 @@
 name: Build modded VLC
 
 # 在 GitHub 免费云服务器上编译带「字幕修复补丁」的 VLC APK。
-# 只编译改了的应用层(Kotlin 字幕补丁),libVLC 引擎拉官方预编译包,
+# 只编译改了的应用层(Kotlin 字幕补丁),libVLC 引擎拉官方预编译包(3.7.7),
 # 编译快、不易超时/内存爆。结果在 Actions 运行页的 Artifacts 下载。
 # 需要仓库根目录存在 vlc-subtitle-fix.patch 这个补丁文件。
 on:
@@ -19,22 +19,35 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: 安装 JDK 17
+      - name: 安装 JDK 21 (AGP 9 / Gradle 9 要求)
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
+
+      - name: 安装 Android SDK (平台36 + build-tools36)
+        run: |
+          mkdir -p $HOME/android-sdk/cmdline-tools
+          curl -sL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o cmdtools.zip
+          unzip -q cmdtools.zip -d $HOME/android-sdk/cmdline-tools
+          mv $HOME/android-sdk/cmdline-tools/cmdline-tools $HOME/android-sdk/cmdline-tools/latest
+          export ANDROID_HOME=$HOME/android-sdk
+          export PATH=$HOME/android-sdk/cmdline-tools/latest/bin:$PATH
+          yes | sdkmanager --sdk_root=$HOME/android-sdk --licenses >/dev/null || true
+          sdkmanager --sdk_root=$HOME/android-sdk "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+          echo "sdk.dir=$HOME/android-sdk" > local.properties
+          echo "ANDROID_HOME=$HOME/android-sdk" >> $GITHUB_ENV
 
       - name: 应用字幕修复补丁
         run: git apply vlc-subtitle-fix.patch && echo "PATCH APPLIED OK"
 
-      - name: 用官方预编译 libVLC 编译应用
-        working-directory: application/vlc-android
+      - name: 编译应用 (官方预编译 libVLC, 模块 :application:vlc-android)
         env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
           GRADLE_OPTS: "-Xmx4g -XX:MaxMetaspaceSize=1g"
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon --max-workers=2 assembleRelease
+          ./gradlew :application:vlc-android:assembleRelease --no-daemon --max-workers=2
 
       - name: 上传 APK
         uses: actions/upload-artifact@v4
