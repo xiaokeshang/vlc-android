@@ -1,0 +1,45 @@
+diff --git a/application/vlc-android/src/org/videolan/vlc/gui/video/VideoPlayerOverlayDelegate.kt b/application/vlc-android/src/org/videolan/vlc/gui/video/VideoPlayerOverlayDelegate.kt
+index 66e3b10..4734ab4 100644
+--- a/application/vlc-android/src/org/videolan/vlc/gui/video/VideoPlayerOverlayDelegate.kt
++++ b/application/vlc-android/src/org/videolan/vlc/gui/video/VideoPlayerOverlayDelegate.kt
+@@ -1105,7 +1105,23 @@ class VideoPlayerOverlayDelegate (private val player: VideoPlayerActivity) {
+ 
+     private fun pickSubtitles() {
+         val uri = player.videoUri ?: return
+-        val media = if (uri.scheme.isSchemeFile() || uri.scheme.isSchemeNetwork()) MediaWrapperImpl(FileUtils.getParent(uri.toString())!!.toUri()) else null
++        // Resolve the video location so the subtitle picker opens in the SAME folder.
++        // For file:// / network we use the parent dir directly. For content:// (e.g. the
++        // video was opened via "Open with" / a file manager) we resolve the real file path
++        // first, otherwise the picker falls back to the root and cannot list the .srt that
++        // lives next to the video on real storage.
++        val media = when {
++            uri.scheme.isSchemeFile() || uri.scheme.isSchemeNetwork() ->
++                MediaWrapperImpl(FileUtils.getParent(uri.toString())!!.toUri())
++            uri.scheme == "content" -> {
++                val realPath = FileUtils.getPathFromURI(uri)
++                if (realPath.isNotEmpty()) {
++                    val parent = FileUtils.getParent(realPath)
++                    if (parent != null) MediaWrapperImpl(parent.toUri()) else null
++                } else null
++            }
++            else -> null
++        }
+         player.isShowingDialog = true
+         val filePickerIntent = Intent(player, FilePickerActivity::class.java)
+         filePickerIntent.putExtra(KEY_MEDIA, media)
+diff --git a/application/vlc-android/src/org/videolan/vlc/providers/FilePickerProvider.kt b/application/vlc-android/src/org/videolan/vlc/providers/FilePickerProvider.kt
+index 7f459c6..083131f 100644
+--- a/application/vlc-android/src/org/videolan/vlc/providers/FilePickerProvider.kt
++++ b/application/vlc-android/src/org/videolan/vlc/providers/FilePickerProvider.kt
+@@ -42,7 +42,10 @@ class FilePickerProvider(context: Context, dataset: LiveDataset<MediaLibraryItem
+     }
+ 
+     override suspend fun findMedia(media: IMedia) = MLServiceLocator.getAbstractMediaWrapper(media)?.takeIf { mw ->
+-        mw.type == MediaWrapper.TYPE_DIR || (pickerType == PickerType.SUBTITLE && mw.type == MediaWrapper.TYPE_SUBTITLE) || (pickerType == PickerType.SOUNDFONT && mw.uri.isSoundFont()) || (pickerType == PickerType.SETTINGS && mw.uri.isSettingsOrEq()) || (pickerType == PickerType.EQUALIZER && mw.uri.isSettingsOrEq())
++        // For the SUBTITLE picker, show every regular file (not just those the media
++        // scanner happened to tag as TYPE_SUBTITLE). This guarantees .srt/.ass/.vtt etc.
++        // are always selectable, even when the system media store misclassifies them.
++        mw.type == MediaWrapper.TYPE_DIR || (pickerType == PickerType.SUBTITLE && mw.type != MediaWrapper.TYPE_DIR) || (pickerType == PickerType.SOUNDFONT && mw.uri.isSoundFont()) || (pickerType == PickerType.SETTINGS && mw.uri.isSettingsOrEq()) || (pickerType == PickerType.EQUALIZER && mw.uri.isSettingsOrEq())
+     }
+ 
+     override fun computeHeaders(value: List<MediaLibraryItem>) {}
