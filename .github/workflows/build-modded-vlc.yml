@@ -44,6 +44,11 @@ jobs:
       - name: 应用字幕修复补丁
         run: git apply vlc-subtitle-fix.patch && echo "PATCH APPLIED OK"
 
+      - name: 配置 git 身份 (compile.sh 给源码打补丁需要)
+        run: |
+          git config --global user.email "build@localhost"
+          git config --global user.name "VLC Build"
+
       - name: 编译应用 (官方 compile.sh, 预编译 libVLC, 仅 arm64-v8a)
         env:
           ANDROID_SDK: ${{ env.ANDROID_SDK }}
