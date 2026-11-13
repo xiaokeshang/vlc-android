@@ -1,7 +1,9 @@
 name: Build modded VLC
 
 # 在 GitHub 免费云服务器上编译带「字幕修复补丁」的 VLC APK。
-# 本机/平板无需安装任何开发工具。编译结果在 Actions 运行页的 Artifacts 下载。
+# 只编译改了的应用层(Kotlin 字幕补丁),libVLC 引擎拉官方预编译包,
+# 编译快、不易超时/内存爆。结果在 Actions 运行页的 Artifacts 下载。
+# 需要仓库根目录存在 vlc-subtitle-fix.patch 这个补丁文件。
 on:
   workflow_dispatch:        # 允许在 Actions 页面手动点 "Run workflow"
   push:
@@ -23,35 +25,16 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: 安装 libVLC 编译依赖
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends autoconf automake ant autopoint cmake g++ libtool-bin m4 make meson ninja-build patch pkg-config ragel subversion unzip gettext build-essential python3 python3-pip openjdk-17-jdk curl git
+      - name: 应用字幕修复补丁
+        run: git apply vlc-subtitle-fix.patch && echo "PATCH APPLIED OK"
 
-      - name: 安装 Android SDK + NDK
-        run: |
-          mkdir -p $HOME/android-sdk/cmdline-tools
-          curl -sL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o cmdtools.zip
-          unzip -q cmdtools.zip -d $HOME/android-sdk/cmdline-tools
-          mv $HOME/android-sdk/cmdline-tools/cmdline-tools $HOME/android-sdk/cmdline-tools/latest
-          echo "$HOME/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
-          yes | sdkmanager --sdk_root=$HOME/android-sdk --licenses >/dev/null
-          sdkmanager --sdk_root=$HOME/android-sdk "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;25.2.9519653"
-          echo "ANDROID_SDK=$HOME/android-sdk" >> $GITHUB_ENV
-          echo "ANDROID_NDK=$HOME/android-sdk/ndk/25.2.9519653" >> $GITHUB_ENV
-
-      - name: 写入并应用字幕修复补丁
-        run: |
-          echo 'ZGlmZiAtLWdpdCBhL2FwcGxpY2F0aW9uL3ZsYy1hbmRyb2lkL3NyYy9vcmcvdmlkZW9sYW4vdmxjL2d1aS92aWRlby9WaWRlb1BsYXllck92ZXJsYXlEZWxlZ2F0ZS5rdCBiL2FwcGxpY2F0aW9uL3ZsYy1hbmRyb2lkL3NyYy9vcmcvdmlkZW9sYW4vdmxjL2d1aS92aWRlby9WaWRlb1BsYXllck92ZXJsYXlEZWxlZ2F0ZS5rdAppbmRleCA2NmUzYjEwLi40NzM0YWI0IDEwMDY0NAotLS0gYS9hcHBsaWNhdGlvbi92bGMtYW5kcm9pZC9zcmMvb3JnL3ZpZGVvbGFuL3ZsYy9ndWkvdmlkZW8vVmlkZW9QbGF5ZXJPdmVybGF5RGVsZWdhdGUua3QKKysrIGIvYXBwbGljYXRpb24vdmxjLWFuZHJvaWQvc3JjL29yZy92aWRlb2xhbi92bGMvZ3VpL3ZpZGVvL1ZpZGVvUGxheWVyT3ZlcmxheURlbGVnYXRlLmt0CkBAIC0xMTA1LDcgKzExMDUsMjMgQEAgY2xhc3MgVmlkZW9QbGF5ZXJPdmVybGF5RGVsZWdhdGUgKHByaXZhdGUgdmFsIHBsYXllcjogVmlkZW9QbGF5ZXJBY3Rpdml0eSkgewogCiAgICAgcHJpdmF0ZSBmdW4gcGlja1N1YnRpdGxlcygpIHsKICAgICAgICAgdmFsIHVyaSA9IHBsYXllci52aWRlb1VyaSA/OiByZXR1cm4KLSAgICAgICAgdmFsIG1lZGlhID0gaWYgKHVyaS5zY2hlbWUuaXNTY2hlbWVGaWxlKCkgfHwgdXJpLnNjaGVtZS5pc1NjaGVtZU5ldHdvcmsoKSkgTWVkaWFXcmFwcGVySW1wbChGaWxlVXRpbHMuZ2V0UGFyZW50KHVyaS50b1N0cmluZygpKSEhLnRvVXJpKCkpIGVsc2UgbnVsbAorICAgICAgICAvLyBSZXNvbHZlIHRoZSB2aWRlbyBsb2NhdGlvbiBzbyB0aGUgc3VidGl0bGUgcGlja2VyIG9wZW5zIGluIHRoZSBTQU1FIGZvbGRlci4KKyAgICAgICAgLy8gRm9yIGZpbGU6Ly8gLyBuZXR3b3JrIHdlIHVzZSB0aGUgcGFyZW50IGRpciBkaXJlY3RseS4gRm9yIGNvbnRlbnQ6Ly8gKGUuZy4gdGhlCisgICAgICAgIC8vIHZpZGVvIHdhcyBvcGVuZWQgdmlhICJPcGVuIHdpdGgiIC8gYSBmaWxlIG1hbmFnZXIpIHdlIHJlc29sdmUgdGhlIHJlYWwgZmlsZSBwYXRoCisgICAgICAgIC8vIGZpcnN0LCBvdGhlcndpc2UgdGhlIHBpY2tlciBmYWxscyBiYWNrIHRvIHRoZSByb290IGFuZCBjYW5ub3QgbGlzdCB0aGUgLnNydCB0aGF0CisgICAgICAgIC8vIGxpdmVzIG5leHQgdG8gdGhlIHZpZGVvIG9uIHJlYWwgc3RvcmFnZS4KKyAgICAgICAgdmFsIG1lZGlhID0gd2hlbiB7CisgICAgICAgICAgICB1cmkuc2NoZW1lLmlzU2NoZW1lRmlsZSgpIHx8IHVyaS5zY2hlbWUuaXNTY2hlbWVOZXR3b3JrKCkgLT4KKyAgICAgICAgICAgICAgICBNZWRpYVdyYXBwZXJJbXBsKEZpbGVVdGlscy5nZXRQYXJlbnQodXJpLnRvU3RyaW5nKCkpISEudG9VcmkoKSkKKyAgICAgICAgICAgIHVyaS5zY2hlbWUgPT0gImNvbnRlbnQiIC0+IHsKKyAgICAgICAgICAgICAgICB2YWwgcmVhbFBhdGggPSBGaWxlVXRpbHMuZ2V0UGF0aEZyb21VUkkodXJpKQorICAgICAgICAgICAgICAgIGlmIChyZWFsUGF0aC5pc05vdEVtcHR5KCkpIHsKKyAgICAgICAgICAgICAgICAgICAgdmFsIHBhcmVudCA9IEZpbGVVdGlscy5nZXRQYXJlbnQocmVhbFBhdGgpCisgICAgICAgICAgICAgICAgICAgIGlmIChwYXJlbnQgIT0gbnVsbCkgTWVkaWFXcmFwcGVySW1wbChwYXJlbnQudG9VcmkoKSkgZWxzZSBudWxsCisgICAgICAgICAgICAgICAgfSBlbHNlIG51bGwKKyAgICAgICAgICAgIH0KKyAgICAgICAgICAgIGVsc2UgLT4gbnVsbAorICAgICAgICB9CiAgICAgICAgIHBsYXllci5pc1Nob3dpbmdEaWFsb2cgPSB0cnVlCiAgICAgICAgIHZhbCBmaWxlUGlja2VySW50ZW50ID0gSW50ZW50KHBsYXllciwgRmlsZVBpY2tlckFjdGl2aXR5OjpjbGFzcy5qYXZhKQogICAgICAgICBmaWxlUGlja2VySW50ZW50LnB1dEV4dHJhKEtFWV9NRURJQSwgbWVkaWEpCmRpZmYgLS1naXQgYS9hcHBsaWNhdGlvbi92bGMtYW5kcm9pZC9zcmMvb3JnL3ZpZGVvbGFuL3ZsYy9wcm92aWRlcnMvRmlsZVBpY2tlclByb3ZpZGVyLmt0IGIvYXBwbGljYXRpb24vdmxjLWFuZHJvaWQvc3JjL29yZy92aWRlb2xhbi92bGMvcHJvdmlkZXJzL0ZpbGVQaWNrZXJQcm92aWRlci5rdAppbmRleCA3ZjQ1OWM2Li4wODMxMzFmIDEwMDY0NAotLS0gYS9hcHBsaWNhdGlvbi92bGMtYW5kcm9pZC9zcmMvb3JnL3ZpZGVvbGFuL3ZsYy9wcm92aWRlcnMvRmlsZVBpY2tlclByb3ZpZGVyLmt0CisrKyBiL2FwcGxpY2F0aW9uL3ZsYy1hbmRyb2lkL3NyYy9vcmcvdmlkZW9sYW4vdmxjL3Byb3ZpZGVycy9GaWxlUGlja2VyUHJvdmlkZXIua3QKQEAgLTQyLDcgKzQyLDEwIEBAIGNsYXNzIEZpbGVQaWNrZXJQcm92aWRlcihjb250ZXh0OiBDb250ZXh0LCBkYXRhc2V0OiBMaXZlRGF0YXNldDxNZWRpYUxpYnJhcnlJdGVtCiAgICAgfQogCiAgICAgb3ZlcnJpZGUgc3VzcGVuZCBmdW4gZmluZE1lZGlhKG1lZGlhOiBJTWVkaWEpID0gTUxTZXJ2aWNlTG9jYXRvci5nZXRBYnN0cmFjdE1lZGlhV3JhcHBlcihtZWRpYSk/LnRha2VJZiB7IG13IC0+Ci0gICAgICAgIG13LnR5cGUgPT0gTWVkaWFXcmFwcGVyLlRZUEVfRElSIHx8IChwaWNrZXJUeXBlID09IFBpY2tlclR5cGUuU1VCVElUTEUgJiYgbXcudHlwZSA9PSBNZWRpYVdyYXBwZXIuVFlQRV9TVUJUSVRMRSkgfHwgKHBpY2tlclR5cGUgPT0gUGlja2VyVHlwZS5TT1VOREZPTlQgJiYgbXcudXJpLmlzU291bmRGb250KCkpIHx8IChwaWNrZXJUeXBlID09IFBpY2tlclR5cGUuU0VUVElOR1MgJiYgbXcudXJpLmlzU2V0dGluZ3NPckVxKCkpIHx8IChwaWNrZXJUeXBlID09IFBpY2tlclR5cGUuRVFVQUxJWkVSICYmIG13LnVyaS5pc1NldHRpbmdzT3JFcSgpKQorICAgICAgICAvLyBGb3IgdGhlIFNVQlRJVExFIHBpY2tlciwgc2hvdyBldmVyeSByZWd1bGFyIGZpbGUgKG5vdCBqdXN0IHRob3NlIHRoZSBtZWRpYQorICAgICAgICAvLyBzY2FubmVyIGhhcHBlbmVkIHRvIHRhZyBhcyBUWVBFX1NVQlRJVExFKS4gVGhpcyBndWFyYW50ZWVzIC5zcnQvLmFzcy8udnR0IGV0Yy4KKyAgICAgICAgLy8gYXJlIGFsd2F5cyBzZWxlY3RhYmxlLCBldmVuIHdoZW4gdGhlIHN5c3RlbSBtZWRpYSBzdG9yZSBtaXNjbGFzc2lmaWVzIHRoZW0uCisgICAgICAgIG13LnR5cGUgPT0gTWVkaWFXcmFwcGVyLlRZUEVfRElSIHx8IChwaWNrZXJUeXBlID09IFBpY2tlclR5cGUuU1VCVElUTEUgJiYgbXcudHlwZSAhPSBNZWRpYVdyYXBwZXIuVFlQRV9ESVIpIHx8IChwaWNrZXJUeXBlID09IFBpY2tlclR5cGUuU09VTkRGT05UICYmIG13LnVyaS5pc1NvdW5kRm9udCgpKSB8fCAocGlja2VyVHlwZSA9PSBQaWNrZXJUeXBlLlNFVFRJTkdTICYmIG13LnVyaS5pc1NldHRpbmdzT3JFcSgpKSB8fCAocGlja2VyVHlwZSA9PSBQaWNrZXJUeXBlLkVRVUFMSVpFUiAmJiBtdy51cmkuaXNTZXR0aW5nc09yRXEoKSkKICAgICB9CiAKICAgICBvdmVycmlkZSBmdW4gY29tcHV0ZUhlYWRlcnModmFsdWU6IExpc3Q8TWVkaWFMaWJyYXJ5SXRlbT4pIHt9Cg==' | base64 -d > /tmp/subtitle-fix.patch
-          git apply /tmp/subtitle-fix.patch && echo "PATCH APPLIED OK"
-
-      - name: 编译 libVLC + medialibrary + 应用 (arm64-v8a)
-        working-directory: buildsystem
+      - name: 用官方预编译 libVLC 编译应用
+        working-directory: application/vlc-android
         env:
-          ANDROID_SDK: ${{ env.ANDROID_SDK }}
-          ANDROID_NDK: ${{ env.ANDROID_NDK }}
+          GRADLE_OPTS: "-Xmx4g -XX:MaxMetaspaceSize=1g"
         run: |
-          ./compile.sh -a arm64-v8a -l -m
+          chmod +x gradlew
+          ./gradlew --no-daemon --max-workers=2 assembleRelease
 
       - name: 上传 APK
         uses: actions/upload-artifact@v4
