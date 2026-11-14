@@ -1,10 +1,16 @@
-name: Build modded VLC
+name: 编译字幕修复版 VLC (Debug 预编译版)
 
 # 在 GitHub 免费云服务器上编译带「字幕修复补丁」的 VLC APK。
-# 用标准 ubuntu 镜像自己装 Android SDK/NDK，再跑官方构建脚本 compile.sh -t
-# （用预编译 libVLC contribs，不编 ffmpeg，快且稳；默认 assembleDev，无需签名）。
-# 结果在 Actions 运行页的 Artifacts 下载。
-# 需要仓库根目录存在 vlc-subtitle-fix.patch 这个补丁文件。
+#
+# 关键改动（相较旧版）：
+#   旧版编译的是 Dev 版，会强制从 VideoLAN 的 GitLab 拉 vlc 源码 + 用 NDK 现场编译
+#   libVLC，而 VideoLAN 的 GitLab 会把 GitHub Actions 的服务器 IP 拦掉（403），所以一直失败。
+#   本版改为编译 Debug 版：Debug 版直接使用 Maven 中央仓库上现成的预编译 libVLC / Medialibrary
+#   （org.videolan.android:libvlc-all / medialibrary-all），【不拉 vlc 源码、不跑 NDK 编译】，
+#   既快又不会被 GitLab 拦截。我们的字幕补丁只改 App 层，与 libVLC 编译无关，所以完全可行。
+#   Debug 版生成的包名是 org.videolan.vlc.debug（与官方 VLC 并存，不冲突）。
+#
+# 注意：仓库根目录需要存在 vlc-subtitle-fix.patch 这个补丁文件。
 on:
   workflow_dispatch:        # 允许在 Actions 页面手动点 "Run workflow"
   push:
@@ -14,11 +20,14 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: Checkout (含 libvlc / medialibrary 子模块)
+      # 本项目没有 git 子模块，用默认检出即可（千万不要开 submodules，否则会去 GitLab 拉取）
+      - name: 检出代码（不需要子模块）
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          fetch-depth: 0
+
+      - name: 配置 git 身份
+        run: |
+          git config --global user.email "ci@vlc.local"
+          git config --global user.name "VLC CI"
 
       - name: 安装 JDK 21
         uses: actions/setup-java@v4
@@ -26,7 +35,7 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: 安装 Android SDK + NDK
+      - name: 安装 Android SDK + NDK（沿用已验证可用的 25.2.9519653）
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends unzip curl
@@ -41,24 +50,69 @@ jobs:
           echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
           echo "ANDROID_NDK=$SDK/ndk/25.2.9519653" >> "$GITHUB_ENV"
 
-      - name: 应用字幕修复补丁
-        run: git apply vlc-subtitle-fix.patch && echo "PATCH APPLIED OK"
-
-      - name: 配置 git 身份 (compile.sh 给源码打补丁需要)
+      - name: 应用字幕修复补丁（已应用则自动跳过）
         run: |
-          git config --global user.email "build@localhost"
-          git config --global user.name "VLC Build"
+          set -e
+          if git apply --check vlc-subtitle-fix.patch 2>/dev/null; then
+            git apply vlc-subtitle-fix.patch
+            echo "已应用字幕修复补丁"
+          elif git apply -R --check vlc-subtitle-fix.patch 2>/dev/null; then
+            echo "补丁已存在，跳过"
+          else
+            echo "补丁无法应用，请检查 vlc-subtitle-fix.patch 与仓库版本是否匹配"
+            git apply vlc-subtitle-fix.patch
+          fi
 
-      - name: 编译应用 (官方 compile.sh, 预编译 libVLC, 仅 arm64-v8a)
+      - name: 创建占位 libvlcjni（绕过被封的 VideoLAN GitLab）
+        # Debug 版不用源码编译 libVLC，但 Gradle 配置阶段要求 :libvlcjni:libvlc 这个项目存在。
+        # 我们放一个最小占位模块即可，彻底不访问 GitLab。
+        run: |
+          set -e
+          mkdir -p libvlcjni/libvlc
+          cat > libvlcjni/libvlc/build.gradle <<'GRADLE_EOF'
+          apply plugin: 'com.android.library'
+          android {
+              namespace = 'org.videolan'
+              compileSdk = 36
+              defaultConfig {
+                  minSdk = 17
+              }
+              buildTypes {
+                  release { minifyEnabled false }
+                  debug { }
+                  dev {
+                      initWith debug
+                  }
+              }
+          }
+          GRADLE_EOF
+          echo "占位 libvlcjni 已创建"
+
+      - name: 生成 local.properties
+        run: |
+          set -e
+          cat > local.properties <<EOF
+          sdk.dir=$ANDROID_HOME
+          android.ndkPath=$ANDROID_NDK
+          android.ndkFullVersion=25.2.9519653
+          EOF
+          echo "local.properties 已生成"
+
+      - name: 安装 Gradle 9.6.0 并编译 Debug APK
         env:
           ANDROID_SDK: ${{ env.ANDROID_SDK }}
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
           ANDROID_NDK: ${{ env.ANDROID_NDK }}
-        run: ./buildsystem/compile.sh -a arm64-v8a -t
+        run: |
+          set -e
+          curl -L --retry 3 -o gradle.zip https://services.gradle.org/distributions/gradle-9.6.0-bin.zip
+          unzip -q gradle.zip
+          export PATH="$PWD/gradle-9.6.0/bin:$PATH"
+          gradle :application:app:assembleDebug --no-daemon --stacktrace
 
       - name: 上传 APK
         uses: actions/upload-artifact@v4
         with:
           name: vlc-modded-apk
-          path: application/vlc-android/build/outputs/apk/**/*.apk
+          path: application/app/build/outputs/apk/debug/*.apk
           if-no-files-found: warn
